@@ -1,0 +1,60 @@
+name: Salesforce CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '14'
+
+    - name: Install SFDX CLI
+      run: |
+        npm install sfdx-cli --global
+
+    - name: Authenticate with Salesforce
+      env:
+        SFDX_AUTH_URL: ${{ secrets.SFDX_AUTH_URL }}
+      run: |
+        echo $SFDX_AUTH_URL > auth-url.txt
+        sfdx auth:sfdxurl:store -f auth-url.txt
+
+    - name: Validate Deployment
+      run: |
+        sfdx force:source:deploy -p force-app/main/default -c
+      continue-on-error: true
+
+    - name: Run Apex Tests
+      run: |
+        sfdx force:apex:test:run --resultformat human --wait 10
+      continue-on-error: true
+
+    - name: Deploy to Salesforce
+      if: success() && steps.validate-deployment.outcome == 'success'
+      run: |
+        sfdx force:source:deploy -p force-app/main/default
+      continue-on-error: true
+
+    - name: Check Deployment Status
+      if: failure()
+      run: |
+        sfdx force:mdapi:deploy:report -w 10
+      continue-on-error: true
+
+    - name: Notify Deployment Status
+      if: failure()
+      run: |
+        echo "Deployment failed!"
+      if: success()
+      run: |
+        echo "Deployment succeeded!"
